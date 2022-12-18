@@ -1,4 +1,8 @@
 # Prerequisites
+.sconsign.dblite
+phoneNumbers.txt
+sortedPhoneNumbers.txt
+
 *.d
 
 # Compiled Object files
