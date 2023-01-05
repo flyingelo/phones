@@ -12,8 +12,12 @@
 #include <vector>
 #include <random>
 
+const uint16_t digits{6u};
+const uint32_t maxNumbers{1000000u};
+
 const std::string inputFileName = "phoneNumbers.txt";
 const std::string outputFileName = "sortedPhoneNumbers.txt";
+const std::string outputFileNameBasic = "sortedPhoneNumbersBasic.txt";
 
 using PhoneNumber = std::uint32_t;
 using PhoneNumbers = std::vector<PhoneNumber>;
@@ -24,26 +28,31 @@ struct Timer
   {
   }
 
+  Timer(const std::string& name) :  
+    m_name(name),
+    m_startTime(std::chrono::high_resolution_clock::now())
+  {
+  }
+
   ~Timer() {
     const auto endTime = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff = endTime - m_startTime;
-    std::cout << diff.count() << " [s]\n";
+    std::cout << m_name << ": " << diff.count() << " [s]\n";
   }
 
 private:
 
+  std::string m_name;
   std::chrono::time_point<std::chrono::high_resolution_clock> m_startTime;
 };
 
-template <PhoneNumber MaxNumbers>
 void generateNumbers(PhoneNumber count)
 {
   // not optimal - this really slows down once count approaches MaxNumbers
   // could use some improvements
-  Timer timer;
-  const auto digits = static_cast<std::uint16_t>(std::log10(MaxNumbers));
+  Timer timer("GENERATE NUMBERS");
   const PhoneNumber min = 0;
-  const PhoneNumber max = MaxNumbers;
+  const PhoneNumber max = maxNumbers - 1;
   std::random_device rd;
   std::mt19937 rng(rd());
   std::uniform_int_distribution<PhoneNumber> uni(min, max);
@@ -54,6 +63,9 @@ void generateNumbers(PhoneNumber count)
     PhoneNumber num = uni(rng);
     while (gen.count(num)) {
       ++num;
+      if (num >= maxNumbers) {
+        num = 0;
+      }
     }
     gen.insert(num);
     ofs << std::setfill('0') << std::setw(digits) << num << std::endl;
@@ -61,81 +73,68 @@ void generateNumbers(PhoneNumber count)
   ofs.close();
 }
 
-PhoneNumbers getPhoneNumbers()
+void writeSorted()
 {
-  Timer timer;
-  PhoneNumbers numbers;
+  Timer timer("WRITE SORTED");
+  
+  std::bitset<maxNumbers> bits;
 
   std::ifstream ifs(inputFileName);
-
   std::string line;
   while (std::getline(ifs, line)) {
-    numbers.emplace_back(static_cast<PhoneNumber>(std::stoi(line)));
+    bits.set(static_cast<PhoneNumber>(std::stoi(line)), true);
   }
 
-  return numbers;
-}
-
-template <PhoneNumber MaxNumbers>
-void sortPhoneNumbers(PhoneNumbers& phoneNumbers)
-{ 
-  Timer timer;
-
-  std::vector<bool> bits(MaxNumbers, false);
-
-  std::for_each(std::begin(phoneNumbers), std::end(phoneNumbers), [&](const auto& phoneNumber){bits[phoneNumber] = true;});
-
-  PhoneNumber j = 0;
-  for (PhoneNumber i = 0; i < MaxNumbers && j < phoneNumbers.size(); ++i) {
-    if (bits.at(i)) {
-      phoneNumbers[j++] = i;
+  std::ofstream ofs(outputFileName);
+  for (PhoneNumber i = 0; i < maxNumbers; ++i) {
+    if (bits.test(i)) {
+      ofs << std::setfill('0') << std::setw(digits) << i << '\n';
     }
   }
+  ofs.close();
 }
 
-void sortBasic(PhoneNumbers& phoneNumbers)
+void writeSortedBasic()
 {
-  Timer timer;
+  Timer timer("WRITE SORTED BASIC");
+
+  PhoneNumbers phoneNumbers;
+  std::ifstream ifs(inputFileName);
+  std::string line;
+  while (std::getline(ifs, line)) {
+    phoneNumbers.emplace_back(static_cast<PhoneNumber>(std::stoi(line)));
+  }
+
   std::sort(std::begin(phoneNumbers), std::end(phoneNumbers));
-}
 
-template <PhoneNumber MaxNumbers>
-void putPhoneNumbers(const PhoneNumbers& phoneNumbers)
-{
-  Timer timer;
-  const auto digits = static_cast<std::uint16_t>(std::log10(MaxNumbers));  
-  std::ofstream ofs(outputFileName);
-  for (const auto& phoneNumber : phoneNumbers) {
+  std::ofstream ofs(outputFileNameBasic);
+  for (const auto phoneNumber : phoneNumbers) {
     ofs << std::setfill('0') << std::setw(digits) << phoneNumber << '\n';
   }
   ofs.close();
 }
 
-template <std::uint32_t MaxNumbers>
 bool run(std::uint32_t numNumbers)
 {
-  std::cout << "Generating " << numNumbers << " numbers... ";
-  generateNumbers<MaxNumbers>(numNumbers);
+  generateNumbers(numNumbers);
 
-  std::cout << "Reading numbers... ";
-  auto phoneNumbers = getPhoneNumbers();
+  writeSorted();
 
-  // make a copy for later use
-  auto phoneNumbersCopy = phoneNumbers;
-  
-  std::cout << "Sorting numbers using the clever method... ";
-  sortPhoneNumbers<MaxNumbers>(phoneNumbers);
+  writeSortedBasic();
 
-  std::cout << "Writing sorted numbers... ";
-  putPhoneNumbers<MaxNumbers>(phoneNumbers);
-
-  std::cout << "Sorting numbers using std::sort... ";
-  sortBasic(phoneNumbersCopy);
-
-  if (!std::equal(phoneNumbers.begin(), phoneNumbers.end(), phoneNumbersCopy.begin())) {
-    std::cout << "ERROR: phoneNumbers are not as expected" << std::endl;
-    return false;
-  }  
+  std::cout << "Checking results... " << std::endl;
+  std::ifstream canon(outputFileNameBasic); 
+  std::ifstream candidate(outputFileName); 
+  std::string canonLine;
+  std::string candidateLine;
+  while (std::getline(canon, canonLine)) {
+    if (!std::getline(candidate, candidateLine)) {
+      return false;
+    }
+    if (static_cast<PhoneNumber>(std::stoi(canonLine)) != static_cast<PhoneNumber>(std::stoi(candidateLine))) {
+      return false;
+    }
+  }
 
   return true;
 }
@@ -143,24 +142,18 @@ bool run(std::uint32_t numNumbers)
 int main(int argc, const char *argv[])
 {
   std::uint32_t numNumbers = 1000U;
-  std::uint16_t digits = 6;
   std::cout << "Parsing arguments" << std::endl;  
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == "--num" && argc > i + 1) {
       numNumbers = static_cast<std::uint32_t>(std::stoi(argv[i + 1]));
-    }
-    if (std::string(argv[i]) == "--digits" && argc > i + 1) {
-      digits = static_cast<std::uint16_t>(std::stoi(argv[i + 1]));
-    }    
+    } 
   }
-
-  std::uint32_t maxNumbers = static_cast<std::uint32_t>(std::pow(10, digits));
 
   std::cout << "Number of digits in a phone number: " << digits << std::endl;
   std::cout << "Maximum number of phone numbers possible: " << maxNumbers << std::endl;
   std::cout << "Number of phone numbers to sort: " << numNumbers << std::endl;
 
-  if (digits < 4 || digits > 7) {
+  if constexpr (digits < 4 || digits > 7) {
     std::cout << "ERROR: number of digits must be between [4...7]." << std::endl;
     return EXIT_FAILURE;    
   }
@@ -171,17 +164,12 @@ int main(int argc, const char *argv[])
   }
 
   bool ok{false};
-  if (digits == 4) {
-    ok = run<10000>(numNumbers);
+  try {
+    ok = run(numNumbers);
   }
-  else if (digits == 5) {
-    ok = run<100000>(numNumbers);
-  }
-  else if (digits == 6) {
-    ok = run<1000000>(numNumbers);
-  }
-  else if (digits == 7) {
-    ok = run<10000000>(numNumbers);
+  catch (const std::exception& e) {
+    std::cout << "ERROR: " << e.what() << std::endl;
+    return EXIT_FAILURE;
   }
 
   if (!ok) {
